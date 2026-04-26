@@ -65,7 +65,14 @@ cd recap
 # Backend
 cd backend
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+# Activate the virtual environment:
+#   macOS/Linux (bash/zsh):
+source .venv/bin/activate
+#   Windows PowerShell — if you get an "execution policy" error, first run:
+#     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.venv\Scripts\activate
+
 pip install -r requirements.txt
 
 # Frontend
@@ -78,7 +85,7 @@ npm install
 ```bash
 # Terminal 1 — Backend
 cd backend
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 python -m uvicorn main:app --reload --port 8420
 
 # Terminal 2 — Frontend + Tauri
