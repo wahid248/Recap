@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent.parent
@@ -10,6 +11,8 @@ DB_PATH = DATA_DIR / "recap.db"
 SAMPLE_RATE = 16000
 CHANNELS = 1
 CHUNK_DURATION = 5  # seconds for Whisper windows
+
+HF_TOKEN: str | None = os.environ.get("HF_TOKEN")
 
 # Model names
 WHISPER_MODEL = "large-v3"
