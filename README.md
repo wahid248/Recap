@@ -11,27 +11,80 @@ A local, privacy-first desktop app that captures system audio from any meeting p
 - **Full-text search** — find any meeting by keyword
 - **Cross-platform** — Windows, macOS, Linux
 
-## Architecture
+## System Design
 
 ```
-┌─────────────────────────────┐
-│  Tauri (native desktop app) │
-│  ┌───────────────────────┐  │
-│  │  React UI (webview)   │──── HTTP/WebSocket ───→ Python backend (FastAPI)
-│  └───────────────────────┘  │                        port 8420
-│  System tray / window mgmt  │
-└─────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                        User's Machine                                │
+│                                                                      │
+│  ┌─────────────────────────────┐        ┌───────────────────────┐   │
+│  │   Tauri Desktop Shell       │        │   Python Backend       │   │
+│  │  ┌───────────────────────┐  │        │   (FastAPI :8420)      │   │
+│  │  │   React UI (webview)  │◄─┼──WS────┤                       │   │
+│  │  │                       │  │        │  ┌─────────────────┐  │   │
+│  │  │  LiveSession.tsx      │  │        │  │  Audio Capture  │  │   │
+│  │  │  MeetingHistory.tsx   │──┼─HTTP──►│  │  (WASAPI/Pulse/ │  │   │
+│  │  │  MeetingDetail.tsx    │  │        │  │   SCKit)        │  │   │
+│  │  └───────────────────────┘  │        │  └────────┬────────┘  │   │
+│  │  System tray / window mgmt  │        │           │            │   │
+│  └─────────────────────────────┘        │           ▼            │   │
+│                                         │  ┌─────────────────┐  │   │
+│                                         │  │  Silero VAD     │  │   │
+│                                         │  │  (silence filter│  │   │
+│                                         │  └────────┬────────┘  │   │
+│                                         │           │            │   │
+│                                         │     ┌─────┴──────┐    │   │
+│                                         │     │            │    │   │
+│                                         │     ▼            ▼    │   │
+│                                         │  ┌──────┐  ┌────────┐ │   │
+│                                         │  │Whispr│  │pyannote│ │   │
+│                                         │  │large │  │  3.3   │ │   │
+│                                         │  │  v3  │  │(diariz)│ │   │
+│                                         │  └──┬───┘  └───┬────┘ │   │
+│                                         │     │          │      │   │
+│                                         │     └────┬─────┘      │   │
+│                                         │          │             │   │
+│                                         │          ▼             │   │
+│                                         │  ┌─────────────────┐  │   │
+│                                         │  │  Align text +   │  │   │
+│                                         │  │  speaker labels │  │   │
+│                                         │  └────────┬────────┘  │   │
+│                                         │           │            │   │
+│                                         │     ┌─────┴──────┐    │   │
+│                                         │     │            │    │   │
+│                                         │     ▼            ▼    │   │
+│                                         │  ┌──────┐  ┌────────┐ │   │
+│                                         │  │  WS  │  │SQLite  │ │   │
+│                                         │  │stream│  │  +FTS5 │ │   │
+│                                         │  └──────┘  └────────┘ │   │
+│                                         │                        │   │
+│                                         │  ── meeting ends ──    │   │
+│                                         │  unload Whisper+pyann  │   │
+│                                         │           │             │   │
+│                                         │           ▼             │   │
+│                                         │  ┌─────────────────┐  │   │
+│                                         │  │  Ollama         │  │   │
+│                                         │  │  Mistral 7B Q4  │  │   │
+│                                         │  │  (summary)      │  │   │
+│                                         │  └────────┬────────┘  │   │
+│                                         │           │            │   │
+│                                         │           ▼            │   │
+│                                         │  ┌─────────────────┐  │   │
+│                                         │  │  SQLite summary │  │   │
+│                                         │  │  → notify UI    │  │   │
+│                                         │  └─────────────────┘  │   │
+│                                         └───────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow — During Meeting
-```
-System Audio → Audio Capture → Silero VAD → faster-whisper + pyannote → WebSocket → UI + SQLite
-```
+### VRAM Budget (NVIDIA GPU — 16 GB)
 
-### Data Flow — After Meeting
-```
-Full transcript → Unload STT/diarization models → Ollama (Mistral 7B) → Summary → SQLite → UI
-```
+Models are loaded **sequentially, never concurrently across phases**:
+
+| Phase | Models active | VRAM |
+|---|---|---|
+| During meeting | Silero VAD + Whisper large-v3 + pyannote 3.3 | ~5.1 GB |
+| After meeting | Ollama Mistral 7B Q4_K_M | ~5 GB |
 
 ## Tech Stack
 
@@ -52,8 +105,12 @@ Full transcript → Unload STT/diarization models → Ollama (Mistral 7B) → Su
 - Python 3.11+
 - Node.js 20+
 - Rust (for Tauri)
-- [Ollama](https://ollama.com) with `mistral` pulled (`ollama pull mistral`)
-- NVIDIA GPU with 6+ GB VRAM recommended (CPU fallback is slow)
+- NVIDIA GPU with 6+ GB VRAM recommended (CPU fallback works but is slow)
+- [Ollama](https://ollama.com) installed and running
+- A [HuggingFace](https://huggingface.co) account with access granted to:
+  - [pyannote/speaker-diarization-3.1](https://hf.co/pyannote/speaker-diarization-3.1)
+  - [pyannote/segmentation-3.0](https://hf.co/pyannote/segmentation-3.0)
+  - [pyannote/speaker-diarization-community-1](https://hf.co/pyannote/speaker-diarization-community-1)
 
 ## Getting Started
 
@@ -66,11 +123,11 @@ cd recap
 cd backend
 python -m venv .venv
 
-# Activate the virtual environment:
-#   macOS/Linux (bash/zsh):
+# Activate the virtual environment
+# macOS/Linux:
 source .venv/bin/activate
-#   Windows PowerShell — if you get an "execution policy" error, first run:
-#     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+# Windows PowerShell (if you get an execution policy error, first run:
+#   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser)
 .venv\Scripts\activate
 
 pip install -r requirements.txt
@@ -79,6 +136,21 @@ pip install -r requirements.txt
 cd ../frontend
 npm install
 ```
+
+## Environment Variables
+
+Create a `.env` file in `backend/` or set these in your shell before starting:
+
+| Variable | Required | Description |
+|---|---|---|
+| `HF_TOKEN` | Yes | HuggingFace token with read access — needed to download pyannote models |
+
+```powershell
+# Windows PowerShell
+$env:HF_TOKEN="hf_your_token_here"
+```
+
+Get a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) (Read access is sufficient).
 
 ## Development
 
@@ -92,6 +164,16 @@ python -m uvicorn main:app --reload --port 8420
 cd frontend
 npm run tauri dev
 ```
+
+On first run, pyannote and Whisper models are downloaded automatically and cached in `~/.cache/huggingface/`. This can take a few minutes depending on your connection.
+
+## Ollama Setup
+
+```bash
+ollama pull mistral
+```
+
+Ollama must be running before starting the backend. The summarization step after each meeting calls it at `http://localhost:11434`.
 
 ## Privacy
 
