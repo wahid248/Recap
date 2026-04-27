@@ -48,7 +48,7 @@ def transcribe(audio: np.ndarray) -> list[TranscriptChunk]:
     """Transcribe a float32 PCM array, returning timed text chunks."""
     if _model is None:
         load()
-    segments, _ = _model.transcribe(audio, beam_size=5, language="en")  # type: ignore[union-attr]
+    segments, _ = _model.transcribe(audio, beam_size=5, task="translate")  # type: ignore[union-attr]
     return [
         TranscriptChunk(
             text=seg.text.strip(),
